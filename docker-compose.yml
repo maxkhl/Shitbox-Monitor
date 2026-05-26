@@ -1,0 +1,15 @@
+services:
+  monitor:
+    build: .
+    container_name: shitbox-monitor
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      - /var/run/dbus:/var/run/dbus
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Berlin

@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shitbox Monitor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg: #0b0e13;
+    --surface: #131820;
+    --border: #1e2733;
+    --accent: #00d4aa;
+    --accent2: #f0a500;
+    --accent3: #4ea3ff;
+    --warn: #ff4d4d;
+    --text: #d8e4f0;
+    --muted: #4a5e72;
+    --mono: 'Share Tech Mono', monospace;
+    --sans: 'Barlow', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 18px;
+    color: var(--accent);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  .logo span { color: var(--muted); }
+
+  #status {
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.4s;
+  }
+  .dot.live { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: var(--accent);
+  }
+  .card.mppt::before   { background: var(--accent2); }
+  .card.gps::before    { background: var(--accent3); }
+  .card.mobile::before { background: var(--accent3); }
+  .card.alert::before  { background: var(--warn); }
+
+  .card-title {
+    font-family: var(--mono);
+    font-size: 24px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .model-name {
+    font-size: 17px;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  .soc-wrap {
+    display: flex;
+    gap: 24px;
+  }
+  .soc-details { flex: 1; }
+
+  .metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .metric:last-child { border-bottom: none; }
+
+  .metric-label { font-size: 16px; color: var(--muted); }
+
+  .metric-value {
+    font-family: var(--mono);
+    font-size: 19px;
+    color: var(--text);
+  }
+  .metric-value .unit {
+    font-size: 15px;
+    color: var(--muted);
+    margin-left: 3px;
+  }
+
+  .big-num {
+    font-family: var(--mono);
+    font-size: 48px;
+    color: var(--accent2);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .card.mobile .big-num { color: var(--accent3); }
+  .big-label { font-size: 19px; color: var(--muted); margin-bottom: 16px; }
+
+  .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    border-radius: 2px;
+    margin-bottom: 14px;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .badge.warn  {
+    background: color-mix(in srgb, var(--warn)   15%, transparent);
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+  }
+  .badge.bulk  {
+    background: color-mix(in srgb, var(--accent2) 15%, transparent);
+    color: var(--accent2);
+    border-color: color-mix(in srgb, var(--accent2) 30%, transparent);
+  }
+  .badge.info  {
+    background: color-mix(in srgb, var(--accent3) 15%, transparent);
+    color: var(--accent3);
+    border-color: color-mix(in srgb, var(--accent3) 30%, transparent);
+  }
+
+  .status-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+
+  .updated {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 12px;
+  }
+
+  .waiting {
+    text-align: center;
+    padding: 40px 0;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 1px;
+  }
+  .waiting::before {
+    content: '▋';
+    animation: blink 1s step-end infinite;
+    margin-right: 8px;
+    color: var(--accent);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .scanline {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* GPS panel */
+  .gps-map {
+    height: 180px;
+    margin: 6px 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: #0b0e13;
+  }
+  .leaflet-container { background: #0b0e13; font-family: var(--sans); }
+  .leaflet-control-zoom a {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+  }
+
+  /* Mobile/LTE panel */
+  .bars {
+    display: inline-flex;
+    gap: 3px;
+    align-items: flex-end;
+    height: 22px;
+    vertical-align: middle;
+    margin-left: 10px;
+  }
+  .bars span {
+    width: 5px;
+    background: var(--muted);
+    border-radius: 1px;
+    opacity: 0.35;
+  }
+  .bars span.on { background: var(--accent3); opacity: 1; }
+  .bars span:nth-child(1) { height: 20%; }
+  .bars span:nth-child(2) { height: 40%; }
+  .bars span:nth-child(3) { height: 60%; }
+  .bars span:nth-child(4) { height: 80%; }
+  .bars span:nth-child(5) { height: 100%; }
+</style>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div class="scanline"></div>
+
+<header>
+  <div class="logo">SHITBOX <span>//</span> MONITOR</div>
+  <div id="status">
+    <div class="dot" id="dot"></div>
+    <span id="status-text">WARTE AUF DATEN...</span>
+  </div>
+</header>
+
+<div class="grid" id="grid">
+  <div class="waiting">WARTE AUF QUELLEN</div>
+</div>
+
+<script>
+const POLL_MS = 5000;
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('de-DE');
+}
+function fmtNum(v, dec = 1) {
+  if (v == null) return '—';
+  return Number(v).toFixed(dec);
+}
+function fmtMins(mins) {
+  if (mins == null || mins < 0) return '—';
+  if (mins > 60 * 24 * 7) return '> 7 Tage';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function num(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+const NO_ERROR_STRINGS = ['no_error', 'no_alarm', 'none', 'ok'];
+function isOk(val) {
+  return !val || NO_ERROR_STRINGS.includes(String(val).toLowerCase());
+}
+
+function stateBadge(state) {
+  if (!state) return '';
+  const s = state.toLowerCase();
+  let cls = '';
+  if (s.includes('bulk') || s.includes('absorption')) cls = 'bulk';
+  else if (s.includes('float') || s.includes('mppt')) cls = '';
+  else if (s.includes('off') || s.includes('fault') || s.includes('error')) cls = 'warn';
+  return `<span class="badge ${cls}">${state}</span>`;
+}
+
+function errorBadge(label, val) {
+  if (!val) return '';
+  const ok = isOk(val);
+  return `<span class="badge ${ok ? '' : 'warn'}">${label}: ${val}</span>`;
+}
+
+const GAUGE_R  = 50;
+const GAUGE_CX = 55;
+const GAUGE_CY = GAUGE_R - 1;
+const _ey      = (GAUGE_CY + GAUGE_R).toFixed(1);
+const _sx      = (GAUGE_CX - GAUGE_R - 0.3).toFixed(1);
+const _ex      = (GAUGE_CX + GAUGE_R + 0.3).toFixed(1);
+const ARC_PATH = `M ${_sx} ${_ey} A ${GAUGE_R} ${GAUGE_R} 0 1 1 ${_ex} ${_ey}`;
+const ARC_LEN  = +(2 * Math.PI * GAUGE_R * 240 / 360).toFixed(1);
+
+function buildSOCGauge(soc) {
+  const pct    = Math.max(0, Math.min(100, soc ?? 0));
+  const fill   = Math.min(pct / 100, 0.999);
+  const offset = (ARC_LEN * (1 - fill)).toFixed(2);
+  const color  = pct < 20 ? 'var(--warn)' : pct < 50 ? 'var(--accent2)' : 'var(--accent)';
+  const svgW   = GAUGE_CX * 2;
+  const svgH   = GAUGE_CY + GAUGE_R + 26;
+  const textY  = GAUGE_CY + GAUGE_R * 0.74;
+  const unitY  = GAUGE_CY + GAUGE_R * 1.2;
+  return `
+    <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">
+      <path d="${ARC_PATH}"
+        fill="none" stroke="var(--border)" stroke-width="8" stroke-linecap="round"/>
+      <path d="${ARC_PATH}"
+        fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"
+        stroke-dasharray="${ARC_LEN}" stroke-dashoffset="${offset}"
+        style="transition:stroke-dashoffset 1s ease,stroke .5s;"/>
+      <text x="${GAUGE_CX}" y="${textY.toFixed(1)}"
+        font-family="'Share Tech Mono',monospace" font-size="22"
+        fill="var(--text)" text-anchor="middle" dominant-baseline="middle">${Math.round(pct)}</text>
+      <text x="${GAUGE_CX}" y="${unitY.toFixed(1)}"
+        font-family="sans-serif" font-size="11"
+        fill="var(--muted)" text-anchor="middle" dominant-baseline="middle">SOC %</text>
+    </svg>`;
+}
+
+function renderShunt(id, dev) {
+  const d = dev.data;
+  const hasAlert = !isOk(d.alarm);
+  return `
+    <div class="card ${hasAlert ? 'alert' : ''}">
+      <div class="card-title">⚡ ${dev.name}</div>
+      ${d.model_name ? `<div class="model-name">${d.model_name}</div>` : ''}
+      <div class="status-row">
+        ${errorBadge('Alarm', d.alarm)}
+      </div>
+      <div class="soc-wrap">
+        ${buildSOCGauge(d.soc)}
+        <div class="soc-details">
+          <div class="metric">
+            <span class="metric-label">Spannung</span>
+            <span class="metric-value">${fmtNum(d.voltage)}<span class="unit">V</span></span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Strom</span>
+            <span class="metric-value">${fmtNum(d.current)}<span class="unit">A</span></span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Verbraucht</span>
+            <span class="metric-value">${fmtNum(d.consumed_ah)}<span class="unit">Ah</span></span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Restlaufzeit</span>
+            <span class="metric-value" style="font-size:13px">${fmtMins(d.remaining_mins)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="updated">UPDATED ${fmtTime(dev.updated_at)}</div>
+    </div>`;
+}
+
+function renderMPPT(id, dev) {
+  const d = dev.data;
+  const hasError = !isOk(d.charger_error);
+  return `
+    <div class="card mppt ${hasError ? 'alert' : ''}">
+      <div class="card-title">☀ ${dev.name}</div>
+      ${d.model_name ? `<div class="model-name">${d.model_name}</div>` : ''}
+      <div class="status-row">
+        ${stateBadge(d.charge_state)}
+        ${errorBadge('Fehler', d.charger_error)}
+      </div>
+      <div class="big-num">${d.solar_power != null ? Math.round(d.solar_power) : '—'}<span style="font-size:18px;color:var(--muted);margin-left:6px">W</span></div>
+      <div class="big-label">Solar-Leistung aktuell</div>
+      <div class="metric">
+        <span class="metric-label">Batterie</span>
+        <span class="metric-value">${fmtNum(d.battery_voltage)}<span class="unit">V</span></span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Ladestrom</span>
+        <span class="metric-value">${fmtNum(d.battery_charging_current)}<span class="unit">A</span></span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Ertrag heute</span>
+        <span class="metric-value">${fmtNum(d.yield_today, 0)}<span class="unit">Wh</span></span>
+      </div>
+      ${d.external_device_load != null ? `
+      <div class="metric">
+        <span class="metric-label">Lastausgang</span>
+        <span class="metric-value">${fmtNum(d.external_device_load)}<span class="unit">A</span></span>
+      </div>` : ''}
+      <div class="updated">UPDATED ${fmtTime(dev.updated_at)}</div>
+    </div>`;
+}
+
+function signalBars(dbm) {
+  if (dbm == null) return 0;
+  if (dbm >= -85)  return 5;
+  if (dbm >= -95)  return 4;
+  if (dbm >= -105) return 3;
+  if (dbm >= -115) return 2;
+  return 1;
+}
+
+function renderMobile(id, dev) {
+  const d = dev.data || {};
+  const operator = d.operator ?? d.operator_name ?? '—';
+  const netType  = d.conntype ?? d.conn_type ?? d.ntype ?? null;
+  const state    = d.data_conn_state ?? d.conn_state ?? d.state ?? null;
+  const rsrp     = num(d.rsrp);
+  const rssi     = num(d.signal ?? d.rssi);
+  const sig      = rsrp ?? rssi;
+  const bars     = signalBars(sig);
+  const band     = d.band ?? null;
+  const stateBad = state
+    ? `<span class="badge${/disconnect|down|fail|not/i.test(state) ? ' warn' : ''}">${state}</span>`
+    : '';
+  const netBad   = netType ? `<span class="badge info">${netType}</span>` : '';
+  return `
+    <div class="card mobile">
+      <div class="card-title">📶 ${dev.name}</div>
+      <div class="model-name">${operator}</div>
+      <div class="status-row">${stateBad}${netBad}</div>
+      <div class="big-num">
+        ${sig != null ? Math.round(sig) : '—'}<span style="font-size:18px;color:var(--muted);margin-left:6px">dBm</span>
+        <span class="bars">
+          ${[1,2,3,4,5].map(i => `<span class="${i <= bars ? 'on' : ''}"></span>`).join('')}
+        </span>
+      </div>
+      <div class="big-label">${rsrp != null ? 'RSRP' : 'Signal'}</div>
+      <div class="metric"><span class="metric-label">SINR</span><span class="metric-value">${d.sinr != null ? d.sinr + ' dB' : '—'}</span></div>
+      <div class="metric"><span class="metric-label">RSRQ</span><span class="metric-value">${d.rsrq != null ? d.rsrq + ' dB' : '—'}</span></div>
+      ${band ? `<div class="metric"><span class="metric-label">Band</span><span class="metric-value">${band}</span></div>` : ''}
+      ${rssi != null && rsrp != null ? `<div class="metric"><span class="metric-label">RSSI</span><span class="metric-value">${rssi} dBm</span></div>` : ''}
+      <div class="updated">UPDATED ${fmtTime(dev.updated_at)}</div>
+    </div>`;
+}
+
+let gpsCard = null;
+let gpsMap = null;
+let gpsMarker = null;
+
+function ensureGPSCard(grid, dev) {
+  if (!gpsCard) {
+    gpsCard = document.createElement('div');
+    gpsCard.className = 'card gps';
+    gpsCard.innerHTML = `
+      <div class="card-title">⌖ ${dev.name}</div>
+      <div class="status-row" data-gps="status"></div>
+      <div class="gps-map" data-gps="map"></div>
+      <div class="metric"><span class="metric-label">Lat</span><span class="metric-value" data-gps="lat">—</span></div>
+      <div class="metric"><span class="metric-label">Lon</span><span class="metric-value" data-gps="lon">—</span></div>
+      <div class="metric"><span class="metric-label">Höhe</span><span class="metric-value" data-gps="alt">—</span></div>
+      <div class="metric"><span class="metric-label">Geschw.</span><span class="metric-value" data-gps="spd">—</span></div>
+      <div class="metric"><span class="metric-label">Satelliten</span><span class="metric-value" data-gps="sat">—</span></div>
+      <div class="updated" data-gps="updated">UPDATED —</div>
+    `;
+    grid.prepend(gpsCard);
+    const mapEl = gpsCard.querySelector('[data-gps="map"]');
+    gpsMap = L.map(mapEl, { zoomControl: true, attributionControl: false }).setView([0, 0], 2);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(gpsMap);
+    setTimeout(() => gpsMap.invalidateSize(), 100);
+  }
+  updateGPSCard(dev);
+}
+
+function updateGPSCard(dev) {
+  const d = dev.data || {};
+  const lat = num(d.latitude ?? d.lat);
+  const lon = num(d.longitude ?? d.lon);
+  const fixCode = num(d.fix_status ?? d.fix);
+  const hasFix = fixCode != null
+    ? fixCode > 0
+    : (lat != null && lon != null && !(lat === 0 && lon === 0));
+  const q = (sel) => gpsCard.querySelector(`[data-gps="${sel}"]`);
+
+  q('status').innerHTML = hasFix
+    ? `<span class="badge info">FIX</span>`
+    : `<span class="badge warn">NO FIX</span>`;
+  q('lat').textContent     = hasFix ? lat.toFixed(5) + '°' : '—';
+  q('lon').textContent     = hasFix ? lon.toFixed(5) + '°' : '—';
+  q('alt').innerHTML       = d.altitude != null ? `${Math.round(d.altitude)}<span class="unit">m</span>` : '—';
+  q('spd').innerHTML       = d.speed != null ? `${fmtNum(d.speed)}<span class="unit">km/h</span>` : '—';
+  q('sat').textContent     = d.satellites != null ? d.satellites : '—';
+  q('updated').textContent = 'UPDATED ' + fmtTime(dev.updated_at);
+
+  if (hasFix && gpsMap) {
+    if (!gpsMarker) {
+      gpsMarker = L.marker([lat, lon]).addTo(gpsMap);
+      gpsMap.setView([lat, lon], 14);
+    } else {
+      gpsMarker.setLatLng([lat, lon]);
+    }
+  }
+}
+
+function destroyGPSCard() {
+  if (gpsMap) { gpsMap.remove(); gpsMap = null; }
+  if (gpsCard) { gpsCard.remove(); gpsCard = null; }
+  gpsMarker = null;
+}
+
+function renderDevice(id, dev) {
+  const t = (dev.type || '').toLowerCase();
+  if (t.includes('battery') || t.includes('shunt')) return renderShunt(id, dev);
+  if (t.includes('solar')   || t.includes('mppt'))  return renderMPPT(id, dev);
+  if (t.includes('mobile')  || t.includes('lte'))   return renderMobile(id, dev);
+  const rows = Object.entries(dev.data || {})
+    .filter(([,v]) => v != null)
+    .map(([k,v]) => `<div class="metric"><span class="metric-label">${k}</span><span class="metric-value">${v}</span></div>`)
+    .join('');
+  return `<div class="card"><div class="card-title">${dev.name}</div>${rows}<div class="updated">UPDATED ${fmtTime(dev.updated_at)}</div></div>`;
+}
+
+async function poll() {
+  try {
+    const data = await fetch('/api/data').then(r => r.json());
+    const keys = Object.keys(data);
+    const dot  = document.getElementById('dot');
+    const txt  = document.getElementById('status-text');
+    const grid = document.getElementById('grid');
+
+    if (!keys.length) {
+      dot.className = 'dot';
+      txt.textContent = 'WARTE...';
+      destroyGPSCard();
+      grid.innerHTML = '<div class="waiting">WARTE AUF QUELLEN</div>';
+      return;
+    }
+
+    dot.className = 'dot live';
+    txt.textContent = `${keys.length} QUELLE${keys.length > 1 ? 'N' : ''} AKTIV`;
+
+    let gpsEntry = null;
+    const others = [];
+    for (const id of keys) {
+      const dev = data[id];
+      const t = (dev.type || '').toLowerCase();
+      if (t.includes('gps')) gpsEntry = [id, dev];
+      else others.push([id, dev]);
+    }
+
+    Array.from(grid.children).forEach(c => { if (c !== gpsCard) c.remove(); });
+    grid.insertAdjacentHTML('beforeend', others.map(([id, d]) => renderDevice(id, d)).join(''));
+
+    if (gpsEntry) ensureGPSCard(grid, gpsEntry[1]);
+    else destroyGPSCard();
+  } catch {
+    document.getElementById('dot').className = 'dot';
+    document.getElementById('status-text').textContent = 'VERBINDUNGSFEHLER';
+  }
+}
+
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>
