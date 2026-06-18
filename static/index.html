@@ -665,7 +665,8 @@ function renderDCDC(id, dev) {
 
 function typeOrder(dev) {
   const t = (dev.type || '').toLowerCase();
-  if (t.includes('shunt'))                              return 0;
+  // battery without charger = shunt/battery-sense; battery WITH charger = IP22 → falls to charger check
+  if (t.includes('shunt') || (t.includes('battery') && !t.includes('charger'))) return 0;
   if (t.includes('shelly')  || t.includes('htg3'))     return 1;
   if (t.includes('gps'))                               return 2;
   if (t.includes('solar')   || t.includes('mppt'))     return 3;
@@ -677,10 +678,13 @@ function typeOrder(dev) {
 
 function renderDevice(id, dev) {
   const t = (dev.type || '').toLowerCase();
+  // solar must come before charger — SolarCharger contains both 'solar' and 'charger'
+  if (t.includes('solar')   || t.includes('mppt'))  return renderMPPT(id, dev);
+  // charger catches SmartBatteryCharger (IP22); SolarCharger already handled above
   if (t.includes('charger'))                         return renderCharger(id, dev);
   if (t.includes('dcdc') || t.includes('converter')) return renderDCDC(id, dev);
-  if (t.includes('shunt'))                           return renderShunt(id, dev);
-  if (t.includes('solar')   || t.includes('mppt'))  return renderMPPT(id, dev);
+  // battery without charger = SmartShunt / BatterySense
+  if (t.includes('shunt') || t.includes('battery')) return renderShunt(id, dev);
   if (t.includes('mobile')  || t.includes('lte'))   return renderMobile(id, dev);
   if (t.includes('shelly')  || t.includes('htg3'))  return renderShelly(id, dev);
   const rows = Object.entries(dev.data || {})
