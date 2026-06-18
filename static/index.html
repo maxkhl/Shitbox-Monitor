@@ -592,33 +592,30 @@ function renderCharger(id, dev) {
       </div>`;
   }
   const d = dev.data;
-  const state = d.device_state ?? d.charge_state ?? null;
+  const state = d.charge_state ?? d.device_state ?? null;
   const hasError = !isOk(d.charger_error);
+  const voltage = d.output_voltage1 ?? d.output_voltage ?? d.battery_voltage ?? null;
+  const current = d.output_current1 ?? d.output_current ?? d.battery_current ?? null;
   return `
     <div class="card charger ${hasError ? 'alert' : ''}">
       <div class="card-title">⚡ ${dev.name}</div>
-      <div class="model-name">Blue Smart IP22</div>
+      <div class="model-name">${d.model_name ?? 'Blue Smart IP22'}</div>
       <div class="status-row">
         ${stateBadge(state)}
         ${errorBadge('Fehler', d.charger_error)}
       </div>
       <div class="metric">
         <span class="metric-label">Batterie</span>
-        <span class="metric-value">${fmtNum(d.battery_voltage)}<span class="unit">V</span></span>
+        <span class="metric-value">${fmtNum(voltage)}<span class="unit">V</span></span>
       </div>
       <div class="metric">
         <span class="metric-label">Ladestrom</span>
-        <span class="metric-value">${fmtNum(d.battery_current)}<span class="unit">A</span></span>
+        <span class="metric-value">${fmtNum(current)}<span class="unit">A</span></span>
       </div>
       ${d.input_voltage != null ? `
       <div class="metric">
         <span class="metric-label">Netz</span>
         <span class="metric-value">${fmtNum(d.input_voltage)}<span class="unit">V AC</span></span>
-      </div>` : ''}
-      ${d.output_current != null ? `
-      <div class="metric">
-        <span class="metric-label">Ausgangsstrom</span>
-        <span class="metric-value">${fmtNum(d.output_current)}<span class="unit">A</span></span>
       </div>` : ''}
       <div class="updated">UPDATED ${fmtTime(dev.updated_at)}</div>
     </div>`;
@@ -668,23 +665,24 @@ function renderDCDC(id, dev) {
 
 function typeOrder(dev) {
   const t = (dev.type || '').toLowerCase();
-  if (t.includes('battery') || t.includes('shunt'))    return 0;
+  if (t.includes('shunt'))                              return 0;
   if (t.includes('shelly')  || t.includes('htg3'))     return 1;
   if (t.includes('gps'))                               return 2;
   if (t.includes('solar')   || t.includes('mppt'))     return 3;
   if (t.includes('dcdc')    || t.includes('converter')) return 4;
   if (t.includes('charger'))                           return 5;
+  if (t.includes('mobile')  || t.includes('lte'))      return 6;
   return 99;
 }
 
 function renderDevice(id, dev) {
   const t = (dev.type || '').toLowerCase();
-  if (t.includes('battery') || t.includes('shunt')) return renderShunt(id, dev);
+  if (t.includes('charger'))                         return renderCharger(id, dev);
+  if (t.includes('dcdc') || t.includes('converter')) return renderDCDC(id, dev);
+  if (t.includes('shunt'))                           return renderShunt(id, dev);
   if (t.includes('solar')   || t.includes('mppt'))  return renderMPPT(id, dev);
   if (t.includes('mobile')  || t.includes('lte'))   return renderMobile(id, dev);
   if (t.includes('shelly')  || t.includes('htg3'))  return renderShelly(id, dev);
-  if (t.includes('charger'))                         return renderCharger(id, dev);
-  if (t.includes('dcdc') || t.includes('converter')) return renderDCDC(id, dev);
   const rows = Object.entries(dev.data || {})
     .filter(([,v]) => v != null)
     .map(([k,v]) => `<div class="metric"><span class="metric-label">${k}</span><span class="metric-value">${v}</span></div>`)
@@ -726,10 +724,13 @@ async function poll() {
 
     if (gpsEntry) {
       ensureGPSCard(grid, gpsEntry[1]);
+      // After clearing non-GPS cards and appending others, GPS sits at index 0.
+      // gpsPos is its target index in the full sorted list.
+      // grid.children[gpsPos + 1] is the node that should come right after GPS.
       const gpsPos = allEntries.findIndex(([,d]) => (d.type||'').toLowerCase().includes('gps'));
-      const refChild = grid.children[gpsPos] ?? null;
-      if (refChild !== gpsCard) {
-        grid.insertBefore(gpsCard, refChild);
+      const curPos  = Array.from(grid.children).indexOf(gpsCard);
+      if (curPos !== gpsPos) {
+        grid.insertBefore(gpsCard, grid.children[gpsPos + 1] ?? null);
         if (gpsMap) setTimeout(() => gpsMap.invalidateSize(), 50);
       }
     } else {
