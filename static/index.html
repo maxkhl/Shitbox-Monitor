@@ -16,6 +16,8 @@
     --accent2: #f0a500;
     --accent3: #4ea3ff;
     --accent4: #d6649a;
+    --accent5: #b06aff;
+    --accent6: #ff8c42;
     --warn: #ff4d4d;
     --text: #d8e4f0;
     --muted: #4a5e72;
@@ -89,11 +91,25 @@
     width: 3px; height: 100%;
     background: var(--accent);
   }
-  .card.mppt::before   { background: var(--accent2); }
-  .card.gps::before    { background: var(--accent3); }
-  .card.mobile::before { background: var(--accent3); }
-  .card.shelly::before { background: var(--accent4); }
-  .card.alert::before  { background: var(--warn); }
+  .card.mppt::before    { background: var(--accent2); }
+  .card.gps::before     { background: var(--accent3); }
+  .card.mobile::before  { background: var(--accent3); }
+  .card.shelly::before  { background: var(--accent4); }
+  .card.charger::before { background: var(--accent5); }
+  .card.dcdc::before    { background: var(--accent6); }
+  .card.alert::before   { background: var(--warn); }
+  .card.offline::before { background: var(--muted) !important; }
+  .card.offline { opacity: 0.55; }
+  .card.offline .card-title { color: var(--muted); }
+
+  .offline-label {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-align: center;
+    padding: 28px 0;
+  }
 
   .card-title {
     font-family: var(--mono);
@@ -491,7 +507,7 @@ function ensureGPSCard(grid, dev) {
       <div class="metric"><span class="metric-label">Satelliten</span><span class="metric-value" data-gps="sat">—</span></div>
       <div class="updated" data-gps="updated">UPDATED —</div>
     `;
-    grid.prepend(gpsCard);
+    grid.appendChild(gpsCard);
     const mapEl = gpsCard.querySelector('[data-gps="map"]');
     gpsMap = L.map(mapEl, { zoomControl: true, attributionControl: false }).setView([0, 0], 2);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(gpsMap);
@@ -513,8 +529,15 @@ function updateGPSCard(dev) {
   q('status').innerHTML = hasFix
     ? `<span class="badge info">FIX</span>`
     : `<span class="badge warn">NO FIX</span>`;
-  q('lat').textContent     = hasFix ? lat.toFixed(5) + '°' : '—';
-  q('lon').textContent     = hasFix ? lon.toFixed(5) + '°' : '—';
+  if (hasFix) {
+    const mapsUrl = `geo:${lat},${lon}?q=${lat},${lon}`;
+    const link = `<a href="${mapsUrl}" style="color:var(--accent3);text-decoration:none" title="In Karte öffnen">`;
+    q('lat').innerHTML = `${link}${lat.toFixed(5)}°</a>`;
+    q('lon').innerHTML = `${link}${lon.toFixed(5)}°</a>`;
+  } else {
+    q('lat').textContent = '—';
+    q('lon').textContent = '—';
+  }
   q('alt').innerHTML       = d.altitude != null ? `${Math.round(d.altitude)}<span class="unit">m</span>` : '—';
   q('spd').innerHTML       = d.speed != null ? `${fmtNum(d.speed)}<span class="unit">km/h</span>` : '—';
   q('sat').textContent     = d.satellites != null ? d.satellites : '—';
@@ -558,12 +581,110 @@ function renderShelly(id, dev) {
     </div>`;
 }
 
+function renderCharger(id, dev) {
+  const offline = dev.offline;
+  if (offline) {
+    return `
+      <div class="card charger offline">
+        <div class="card-title">⚡ ${dev.name}</div>
+        <div class="model-name">Blue Smart IP22</div>
+        <div class="offline-label">OFFLINE — KEIN LANDSTROM</div>
+      </div>`;
+  }
+  const d = dev.data;
+  const state = d.device_state ?? d.charge_state ?? null;
+  const hasError = !isOk(d.charger_error);
+  return `
+    <div class="card charger ${hasError ? 'alert' : ''}">
+      <div class="card-title">⚡ ${dev.name}</div>
+      <div class="model-name">Blue Smart IP22</div>
+      <div class="status-row">
+        ${stateBadge(state)}
+        ${errorBadge('Fehler', d.charger_error)}
+      </div>
+      <div class="metric">
+        <span class="metric-label">Batterie</span>
+        <span class="metric-value">${fmtNum(d.battery_voltage)}<span class="unit">V</span></span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Ladestrom</span>
+        <span class="metric-value">${fmtNum(d.battery_current)}<span class="unit">A</span></span>
+      </div>
+      ${d.input_voltage != null ? `
+      <div class="metric">
+        <span class="metric-label">Netz</span>
+        <span class="metric-value">${fmtNum(d.input_voltage)}<span class="unit">V AC</span></span>
+      </div>` : ''}
+      ${d.output_current != null ? `
+      <div class="metric">
+        <span class="metric-label">Ausgangsstrom</span>
+        <span class="metric-value">${fmtNum(d.output_current)}<span class="unit">A</span></span>
+      </div>` : ''}
+      <div class="updated">UPDATED ${fmtTime(dev.updated_at)}</div>
+    </div>`;
+}
+
+function renderDCDC(id, dev) {
+  const offline = dev.offline;
+  if (offline) {
+    return `
+      <div class="card dcdc offline">
+        <div class="card-title">🔋 ${dev.name}</div>
+        <div class="model-name">Orion-Tr Smart</div>
+        <div class="offline-label">OFFLINE — MOTOR AUS</div>
+      </div>`;
+  }
+  const d = dev.data;
+  const state = d.device_state ?? d.charge_state ?? null;
+  const hasError = !isOk(d.charger_error);
+  return `
+    <div class="card dcdc ${hasError ? 'alert' : ''}">
+      <div class="card-title">🔋 ${dev.name}</div>
+      <div class="model-name">Orion-Tr Smart</div>
+      <div class="status-row">
+        ${stateBadge(state)}
+        ${errorBadge('Fehler', d.charger_error)}
+      </div>
+      <div class="metric">
+        <span class="metric-label">Eingang (Starter)</span>
+        <span class="metric-value">${fmtNum(d.input_voltage)}<span class="unit">V</span></span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Ausgang (Batt.)</span>
+        <span class="metric-value">${fmtNum(d.output_voltage)}<span class="unit">V</span></span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Ladestrom</span>
+        <span class="metric-value">${fmtNum(d.output_current)}<span class="unit">A</span></span>
+      </div>
+      ${d.off_reason != null && !isOk(d.off_reason) ? `
+      <div class="metric">
+        <span class="metric-label">Grund</span>
+        <span class="metric-value" style="font-size:13px">${d.off_reason}</span>
+      </div>` : ''}
+      <div class="updated">UPDATED ${fmtTime(dev.updated_at)}</div>
+    </div>`;
+}
+
+function typeOrder(dev) {
+  const t = (dev.type || '').toLowerCase();
+  if (t.includes('battery') || t.includes('shunt'))    return 0;
+  if (t.includes('shelly')  || t.includes('htg3'))     return 1;
+  if (t.includes('gps'))                               return 2;
+  if (t.includes('solar')   || t.includes('mppt'))     return 3;
+  if (t.includes('dcdc')    || t.includes('converter')) return 4;
+  if (t.includes('charger'))                           return 5;
+  return 99;
+}
+
 function renderDevice(id, dev) {
   const t = (dev.type || '').toLowerCase();
   if (t.includes('battery') || t.includes('shunt')) return renderShunt(id, dev);
   if (t.includes('solar')   || t.includes('mppt'))  return renderMPPT(id, dev);
   if (t.includes('mobile')  || t.includes('lte'))   return renderMobile(id, dev);
   if (t.includes('shelly')  || t.includes('htg3'))  return renderShelly(id, dev);
+  if (t.includes('charger'))                         return renderCharger(id, dev);
+  if (t.includes('dcdc') || t.includes('converter')) return renderDCDC(id, dev);
   const rows = Object.entries(dev.data || {})
     .filter(([,v]) => v != null)
     .map(([k,v]) => `<div class="metric"><span class="metric-label">${k}</span><span class="metric-value">${v}</span></div>`)
@@ -590,20 +711,30 @@ async function poll() {
     dot.className = 'dot live';
     txt.textContent = `${keys.length} QUELLE${keys.length > 1 ? 'N' : ''} AKTIV`;
 
+    const allEntries = keys.map(id => [id, data[id]]);
+    allEntries.sort(([,a], [,b]) => typeOrder(a) - typeOrder(b));
+
     let gpsEntry = null;
     const others = [];
-    for (const id of keys) {
-      const dev = data[id];
-      const t = (dev.type || '').toLowerCase();
-      if (t.includes('gps')) gpsEntry = [id, dev];
+    for (const [id, dev] of allEntries) {
+      if ((dev.type || '').toLowerCase().includes('gps')) gpsEntry = [id, dev];
       else others.push([id, dev]);
     }
 
     Array.from(grid.children).forEach(c => { if (c !== gpsCard) c.remove(); });
     grid.insertAdjacentHTML('beforeend', others.map(([id, d]) => renderDevice(id, d)).join(''));
 
-    if (gpsEntry) ensureGPSCard(grid, gpsEntry[1]);
-    else destroyGPSCard();
+    if (gpsEntry) {
+      ensureGPSCard(grid, gpsEntry[1]);
+      const gpsPos = allEntries.findIndex(([,d]) => (d.type||'').toLowerCase().includes('gps'));
+      const refChild = grid.children[gpsPos] ?? null;
+      if (refChild !== gpsCard) {
+        grid.insertBefore(gpsCard, refChild);
+        if (gpsMap) setTimeout(() => gpsMap.invalidateSize(), 50);
+      }
+    } else {
+      destroyGPSCard();
+    }
   } catch {
     document.getElementById('dot').className = 'dot';
     document.getElementById('status-text').textContent = 'VERBINDUNGSFEHLER';

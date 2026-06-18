@@ -14,12 +14,16 @@ from sources import Source
 logger = logging.getLogger(__name__)
 
 
-def _load_devices() -> dict[str, tuple[str, str]]:
+def _load_devices() -> dict[str, tuple[str, str, str, bool]]:
     """Parse VICTRON_DEVICES env var.
 
-    Format: JSON array of objects, each with 'mac', 'key', and 'name'.
+    Format: JSON array of objects with 'mac', 'key', 'name', and optional
+    'hint' (type hint for offline card) and 'persistent' (show card when offline).
     Example:
-        VICTRON_DEVICES='[{"mac":"aa:bb:cc:dd:ee:ff","key":"...","name":"SmartShunt"}]'
+        VICTRON_DEVICES='[
+          {"mac":"aa:bb:cc:dd:ee:ff","key":"...","name":"SmartShunt"},
+          {"mac":"ff:ee:dd:cc:bb:aa","key":"...","name":"IP22","hint":"charger","persistent":true}
+        ]'
     """
     raw = os.environ.get("VICTRON_DEVICES", "").strip()
     if not raw:
@@ -27,7 +31,12 @@ def _load_devices() -> dict[str, tuple[str, str]]:
     try:
         items = json.loads(raw)
         return {
-            d["mac"].lower(): (d["key"], d.get("name", d["mac"]))
+            d["mac"].lower(): (
+                d["key"],
+                d.get("name", d["mac"]),
+                d.get("hint", ""),
+                bool(d.get("persistent", False)),
+            )
             for d in items
         }
     except (json.JSONDecodeError, KeyError, TypeError) as e:
@@ -35,7 +44,7 @@ def _load_devices() -> dict[str, tuple[str, str]]:
         return {}
 
 
-DEVICES: dict[str, tuple[str, str]] = _load_devices()
+DEVICES: dict[str, tuple[str, str, str, bool]] = _load_devices()
 
 
 def _extract(parsed) -> dict[str, Any]:
@@ -64,7 +73,7 @@ class _VictronScanner(Scanner):
             device_class = detect_device_type(data)
             if not device_class:
                 return
-            key, name = DEVICES[mac]
+            key, name, _hint, _persistent = DEVICES[mac]
             parsed = device_class(key).parse(data)
             self._registry.publish(
                 f"victron.{name.lower()}",
@@ -88,11 +97,19 @@ class VictronBleSource(Source):
             logger.warning("VICTRON_DEVICES not configured; Victron source disabled")
             return
 
+        for mac, (key, name, hint, persistent) in DEVICES.items():
+            if persistent:
+                registry.declare(
+                    f"victron.{name.lower()}",
+                    name=name,
+                    type=hint or "charger",
+                )
+
         def _thread() -> None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                device_keys = {mac: key for mac, (key, _) in DEVICES.items()}
+                device_keys = {mac: key for mac, (key, _, __, ___) in DEVICES.items()}
                 scanner = _VictronScanner(device_keys, registry)
                 loop.run_until_complete(_serve(scanner))
             except Exception as e:
