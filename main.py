@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from registry import Registry
 from sources import Source
+from sources.pi import PiStatusSource
 from sources.router import TeltonikaSource
 from sources.shelly import ShellySource
 from sources.victron import VictronBleSource
@@ -24,6 +25,7 @@ SOURCES: list[Source] = [
     VictronBleSource(),
     TeltonikaSource(),
     ShellySource(),
+    PiStatusSource(),
 ]
 
 for source in SOURCES:

@@ -97,6 +97,7 @@
   .card.shelly::before  { background: var(--accent4); }
   .card.charger::before { background: var(--accent5); }
   .card.dcdc::before    { background: var(--accent6); }
+  .card.pi::before      { background: var(--accent); }
   .card.alert::before   { background: var(--warn); }
   .card.offline::before { background: var(--muted) !important; }
   .card.offline { opacity: 0.55; }
@@ -256,6 +257,9 @@
   .climate-cell.temp .big-num { color: var(--accent2); }
   .climate-cell.hum  .big-num { color: var(--accent3); }
   .climate-cell .big-label { font-size: 14px; margin-bottom: 0; margin-top: 2px; }
+  .climate-cell.load .big-num { color: var(--accent); }
+  .climate-cell.load.warn .big-num,
+  .climate-cell.cputemp.warn .big-num { color: var(--warn); }
 
   /* Mobile/LTE panel */
   .bars {
@@ -621,6 +625,43 @@ function renderCharger(id, dev) {
     </div>`;
 }
 
+function renderPi(id, dev) {
+  const d = dev.data || {};
+  const temp = num(d.cpu_temp_c);
+  const loadPct = num(d.load_pct);
+  const mem = num(d.mem_used_pct);
+  const tempWarn = temp != null && temp >= 75;
+  const loadWarn = loadPct != null && loadPct >= 90;
+  return `
+    <div class="card pi">
+      <div class="card-title">🖥 ${dev.name}</div>
+      <div class="model-name">Host-System</div>
+      <div class="climate-grid">
+        <div class="climate-cell cputemp temp ${tempWarn ? 'warn' : ''}">
+          <div class="big-num">${temp != null ? fmtNum(temp) : '—'}<span style="font-size:18px;color:var(--muted);margin-left:4px">°C</span></div>
+          <div class="big-label">CPU-Temperatur</div>
+        </div>
+        <div class="climate-cell load ${loadWarn ? 'warn' : ''}">
+          <div class="big-num">${loadPct != null ? Math.round(loadPct) : '—'}<span style="font-size:18px;color:var(--muted);margin-left:4px">%</span></div>
+          <div class="big-label">CPU-Last</div>
+        </div>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Load (1 / 5 / 15 min)</span>
+        <span class="metric-value">${fmtNum(d.load_1, 2)} / ${fmtNum(d.load_5, 2)} / ${fmtNum(d.load_15, 2)}</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Arbeitsspeicher</span>
+        <span class="metric-value">${mem != null ? fmtNum(mem) : '—'}<span class="unit">%</span></span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Laufzeit</span>
+        <span class="metric-value">${fmtMins(d.uptime_sec != null ? Math.round(d.uptime_sec / 60) : null)}</span>
+      </div>
+      <div class="updated">UPDATED ${fmtTime(dev.updated_at)}</div>
+    </div>`;
+}
+
 function renderDCDC(id, dev) {
   const offline = dev.offline;
   if (offline) {
@@ -673,6 +714,7 @@ function typeOrder(dev) {
   if (t.includes('dcdc')    || t.includes('converter')) return 4;
   if (t.includes('charger'))                           return 5;
   if (t.includes('mobile')  || t.includes('lte'))      return 6;
+  if (t.includes('pistatus')|| t.includes('system'))   return 7;
   return 99;
 }
 
@@ -687,6 +729,7 @@ function renderDevice(id, dev) {
   if (t.includes('shunt') || t.includes('battery')) return renderShunt(id, dev);
   if (t.includes('mobile')  || t.includes('lte'))   return renderMobile(id, dev);
   if (t.includes('shelly')  || t.includes('htg3'))  return renderShelly(id, dev);
+  if (t.includes('pistatus')|| t.includes('system')) return renderPi(id, dev);
   const rows = Object.entries(dev.data || {})
     .filter(([,v]) => v != null)
     .map(([k,v]) => `<div class="metric"><span class="metric-label">${k}</span><span class="metric-value">${v}</span></div>`)
@@ -713,33 +756,30 @@ async function poll() {
     dot.className = 'dot live';
     txt.textContent = `${keys.length} QUELLE${keys.length > 1 ? 'N' : ''} AKTIV`;
 
+    // Single, deterministic order for every panel: category rank, then source id
+    // as a tiebreaker. Position is a pure function of the data — never of prior
+    // DOM state — so panels cannot shift between loads.
+    const isGps = dev => (dev.type || '').toLowerCase().includes('gps');
     const allEntries = keys.map(id => [id, data[id]]);
-    allEntries.sort(([,a], [,b]) => typeOrder(a) - typeOrder(b));
+    allEntries.sort(([ia, a], [ib, b]) =>
+      (typeOrder(a) - typeOrder(b)) || ia.localeCompare(ib));
 
-    let gpsEntry = null;
-    const others = [];
-    for (const [id, dev] of allEntries) {
-      if ((dev.type || '').toLowerCase().includes('gps')) gpsEntry = [id, dev];
-      else others.push([id, dev]);
-    }
+    // The GPS card owns a Leaflet map, so it's a persistent node we move rather
+    // than re-render. Ensure it exists (or is gone) before laying out the grid.
+    const gpsEntry = allEntries.find(([, dev]) => isGps(dev)) || null;
+    if (gpsEntry) ensureGPSCard(grid, gpsEntry[1]);
+    else destroyGPSCard();
 
+    // Rebuild the grid strictly in sorted order. Stateless cards are regenerated
+    // from HTML; the persistent GPS node is moved into place with appendChild.
+    // Everything is appended in order, so final DOM order == sorted order — no
+    // index arithmetic, no special-casing of whether a card already existed.
     Array.from(grid.children).forEach(c => { if (c !== gpsCard) c.remove(); });
-    grid.insertAdjacentHTML('beforeend', others.map(([id, d]) => renderDevice(id, d)).join(''));
-
-    if (gpsEntry) {
-      ensureGPSCard(grid, gpsEntry[1]);
-      // After clearing non-GPS cards and appending others, GPS sits at index 0.
-      // gpsPos is its target index in the full sorted list.
-      // grid.children[gpsPos + 1] is the node that should come right after GPS.
-      const gpsPos = allEntries.findIndex(([,d]) => (d.type||'').toLowerCase().includes('gps'));
-      const curPos  = Array.from(grid.children).indexOf(gpsCard);
-      if (curPos !== gpsPos) {
-        grid.insertBefore(gpsCard, grid.children[gpsPos + 1] ?? null);
-        if (gpsMap) setTimeout(() => gpsMap.invalidateSize(), 50);
-      }
-    } else {
-      destroyGPSCard();
+    for (const [id, dev] of allEntries) {
+      if (isGps(dev)) grid.appendChild(gpsCard);
+      else grid.insertAdjacentHTML('beforeend', renderDevice(id, dev));
     }
+    if (gpsMap) setTimeout(() => gpsMap.invalidateSize(), 50);
   } catch {
     document.getElementById('dot').className = 'dot';
     document.getElementById('status-text').textContent = 'VERBINDUNGSFEHLER';
