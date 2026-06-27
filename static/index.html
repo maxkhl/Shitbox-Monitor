@@ -534,8 +534,8 @@ function updateGPSCard(dev) {
     ? `<span class="badge info">FIX</span>`
     : `<span class="badge warn">NO FIX</span>`;
   if (hasFix) {
-    const mapsUrl = `geo:${lat},${lon}?q=${lat},${lon}`;
-    const link = `<a href="${mapsUrl}" style="color:var(--accent3);text-decoration:none" title="In Karte öffnen">`;
+    const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+    const link = `<a href="${mapsUrl}" target="_blank" rel="noopener" style="color:var(--accent3);text-decoration:none" title="In Google Maps öffnen">`;
     q('lat').innerHTML = `${link}${lat.toFixed(5)}°</a>`;
     q('lon').innerHTML = `${link}${lon.toFixed(5)}°</a>`;
   } else {
