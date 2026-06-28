@@ -628,9 +628,11 @@ function renderCharger(id, dev) {
 function renderPi(id, dev) {
   const d = dev.data || {};
   const temp = num(d.cpu_temp_c);
+  const caseTemp = num(d.case_temp_c);
   const loadPct = num(d.load_pct);
   const mem = num(d.mem_used_pct);
   const tempWarn = temp != null && temp >= 75;
+  const caseWarn = caseTemp != null && caseTemp >= 55;
   const loadWarn = loadPct != null && loadPct >= 90;
   return `
     <div class="card pi">
@@ -641,10 +643,14 @@ function renderPi(id, dev) {
           <div class="big-num">${temp != null ? fmtNum(temp) : '—'}<span style="font-size:18px;color:var(--muted);margin-left:4px">°C</span></div>
           <div class="big-label">CPU-Temperatur</div>
         </div>
-        <div class="climate-cell load ${loadWarn ? 'warn' : ''}">
-          <div class="big-num">${loadPct != null ? Math.round(loadPct) : '—'}<span style="font-size:18px;color:var(--muted);margin-left:4px">%</span></div>
-          <div class="big-label">CPU-Last</div>
+        <div class="climate-cell cputemp temp ${caseWarn ? 'warn' : ''}">
+          <div class="big-num">${caseTemp != null ? fmtNum(caseTemp) : '—'}<span style="font-size:18px;color:var(--muted);margin-left:4px">°C</span></div>
+          <div class="big-label">Gehäuse-Temperatur</div>
         </div>
+      </div>
+      <div class="metric">
+        <span class="metric-label">CPU-Last</span>
+        <span class="metric-value" ${loadWarn ? 'style="color:var(--warn)"' : ''}>${loadPct != null ? Math.round(loadPct) : '—'}<span class="unit">%</span></span>
       </div>
       <div class="metric">
         <span class="metric-label">Load (1 / 5 / 15 min)</span>

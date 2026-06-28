@@ -1,4 +1,5 @@
 import asyncio
+import glob
 import logging
 import os
 from typing import Any
@@ -13,6 +14,11 @@ PI_SOURCE_ID = os.environ.get("PI_SOURCE_ID", "system.pi")
 
 POLL_INTERVAL_SEC = 10
 THERMAL_PATH = "/sys/class/thermal/thermal_zone0/temp"
+# 1-Wire DS18B20 in the Pi's case. A glob so we don't hardcode the device id;
+# set CASE_SENSOR_PATH to an exact w1_slave path to pin a specific sensor.
+CASE_SENSOR_GLOB = os.environ.get(
+    "CASE_SENSOR_PATH", "/sys/bus/w1/devices/28-*/w1_slave"
+)
 
 
 def _cpu_temp_c() -> float | None:
@@ -22,6 +28,21 @@ def _cpu_temp_c() -> float | None:
             return round(int(f.read().strip()) / 1000, 1)
     except (OSError, ValueError):
         return None
+
+
+def _case_temp_c() -> float | None:
+    """Case temperature in °C from a 1-Wire DS18B20, or None if no sensor is
+    present or the reading is flagged invalid (CRC mismatch)."""
+    for path in glob.glob(CASE_SENSOR_GLOB):
+        try:
+            with open(path) as f:
+                lines = f.readlines()
+            if len(lines) < 2 or "YES" not in lines[0]:
+                continue
+            return round(int(lines[1].split("t=")[1]) / 1000, 1)
+        except (OSError, ValueError, IndexError):
+            continue
+    return None
 
 
 def _mem_used_pct() -> float | None:
@@ -63,6 +84,7 @@ class PiStatusSource(Source):
                 load_1, load_5, load_15 = os.getloadavg()
                 data: dict[str, Any] = {
                     "cpu_temp_c": _cpu_temp_c(),
+                    "case_temp_c": _case_temp_c(),
                     "load_1": round(load_1, 2),
                     "load_5": round(load_5, 2),
                     "load_15": round(load_15, 2),
